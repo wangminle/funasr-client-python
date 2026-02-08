@@ -735,6 +735,13 @@ def one_thread(id: int, chunk_begin: int, chunk_size: int) -> None:
         chunk_begin: 起始块索引
         chunk_size: 块大小
     """
+    # Windows spawn 模式下，子进程会重新导入模块，此时 args 为 None
+    # 需要在子进程中重新解析命令行参数（子进程继承父进程的 sys.argv）
+    global args
+    if args is None:
+        args = parser.parse_args()
+        args.chunk_size = [int(x.strip()) for x in args.chunk_size.split(",")]
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     success = loop.run_until_complete(ws_client(id, chunk_begin, chunk_size))

@@ -146,7 +146,7 @@ funasr-client-python/
 *   **2pass Probe Enhancement**: Probe level selection, automatic mode switching
 
 ### In Progress 🟡
-*   **End-to-end Integration Testing**: Actual server environment testing
+*   **End-to-end Integration Testing**: Legacy server verified (2026-02-08), new server pending
 
 ### Planned ⏳
 *   **Log Cleanup Strategy**: Add automatic cleanup mechanism with "keep N days/max M MB" configuration
@@ -155,6 +155,17 @@ funasr-client-python/
 *   **Configuration Enhancements**: Common server list, one-click retry, quick SSL toggle
 
 ## ✅ Recent Updates
+
+### V3.0.6 - Legacy Server Compatibility Fix (2026-02-08)
+
+*   **Subprocess Launch Fix** (P0): Fixed `AttributeError` crash due to `args=None` in Windows spawn mode child processes
+*   **Speed Test Fix** (P0): Fixed transcription completion detection failure ("missing transcription end time")
+    - Added `"收到完整结果标志"` pattern matching V3 protocol adapter actual output
+    - Added `"识别结果:"` fallback detection and `"等待超时"` timeout detection
+    - Enhanced error messages to distinguish "server timeout" from "missing timestamps"
+*   **Connection Status Race Fix** (P1): Fixed Tk event queue race condition in speed test / recognition start, flushing pending events after `thread.join()` to ensure `connection_status` is correctly updated
+*   **Window Size Optimization**: Default window size changed from 840×720 to 850×950 to ensure status bar visibility
+*   **Integration Testing**: Speed test and file recognition verified working with legacy FunASR server
 
 ### V3.0 - Protocol Compatibility & Auto-Probe Edition (2026-01-28)
 

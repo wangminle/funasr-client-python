@@ -4,7 +4,7 @@
     "ip": "127.0.0.1",
     "port": "10095",
     "use_itn": 1,
-    "use_ssl": 0,
+    "use_ssl": 1,
     "language": "zh",
     "hotword_path": "",
     "connection_test_timeout": 5,
@@ -15,7 +15,7 @@
     },
     "options": {
         "use_itn": 1,
-        "use_ssl": 0,
+        "use_ssl": 1,
         "hotword_path": ""
     },
     "ui": {
@@ -35,21 +35,24 @@
     },
     "cache": {
         "last_probe_result": {
-            "reachable": false,
-            "responsive": false,
-            "error": "did not receive a valid HTTP response",
-            "supports_offline": null,
+            "reachable": true,
+            "responsive": true,
+            "error": null,
+            "supports_offline": true,
             "supports_online": null,
             "supports_2pass": null,
             "has_timestamp": false,
             "has_stamp_sents": false,
-            "is_final_semantics": "unknown",
-            "inferred_server_type": "unknown",
+            "is_final_semantics": "always_false",
+            "inferred_server_type": "funasr_main",
             "probe_level": "OFFLINE_LIGHT",
-            "probe_notes": [],
-            "probe_duration_ms": 7.22503662109375
+            "probe_notes": [
+                "WebSocket连接成功",
+                "离线模式探测成功"
+            ],
+            "probe_duration_ms": 198.7740993499756
         },
-        "last_probe_time": "2026-02-08T19:55:31.934338"
+        "last_probe_time": "2026-02-08T21:35:58.422639"
     },
     "presets": {
         "public_cloud": {
