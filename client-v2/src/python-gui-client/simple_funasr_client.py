@@ -326,10 +326,15 @@ async def message(id):
                     if text:
                         total_text_length += len(text)
                     
-                    # 统一使用 is_final 字段判断是否完成（修复原有逻辑错误）
+                    # 判断识别是否完成：
+                    # 1) 优先检查 is_final 标志（新版服务器协议）
+                    # 2) 离线模式下，收到非空文本即视为完成（兼容未设置 is_final 的服务器）
                     is_final = meg.get("is_final", False)
                     if is_final:
                         log(f"收到最终结果标志 (is_final=True)，文本长度: {len(text)}")
+                        offline_msg_done = True
+                    elif args.mode == "offline" and text.strip():
+                        log(f"离线模式收到非空文本，识别完成，文本长度: {len(text)}")
                         offline_msg_done = True
                     
                     if "timestamp" in meg:
@@ -351,7 +356,7 @@ async def message(id):
                         ibest_writer.flush()  # 确保立即写入
 
                     # 增量写入JSON结果（改进：立即写入而不是累积）
-                    if json_writer_path is not None and (text or timestamp):
+                    if json_file_path is not None and (text or timestamp):
                         # 过滤掉可能导致JSON文件过大的字段
                         if len(meg) > 1000000:  # 如果消息太大
                             log("消息太大，只保留关键字段")
@@ -368,7 +373,7 @@ async def message(id):
                         
                         # 增量写入：立即写入JSON文件
                         try:
-                            with open(json_writer_path, "w", encoding="utf-8") as f:
+                            with open(json_file_path, "w", encoding="utf-8") as f:
                                 json.dump(all_results_for_json, f, ensure_ascii=False, indent=2)
                             log(f"增量写入JSON结果，当前累计 {len(all_results_for_json)} 条消息")
                         except Exception as e:

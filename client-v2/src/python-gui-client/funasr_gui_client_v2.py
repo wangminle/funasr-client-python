@@ -3245,8 +3245,9 @@ class FunASRGUIClient(tk.Tk):
         )
         self.speed_test_button.config(state=tk.DISABLED)
 
-        # 查找测试文件 - 使用根目录下的resources/demo目录
-        demo_dir = os.path.join(self.project_root, "resources", "demo")
+        # 查找测试文件 - 使用仓库根目录下的resources/demo目录
+        repo_root = os.path.abspath(os.path.join(self.project_root, os.pardir))
+        demo_dir = os.path.join(repo_root, "resources", "demo")
         mp4_file = os.path.join(demo_dir, "tv-report-1.mp4")
         wav_file = os.path.join(demo_dir, "tv-report-1.wav")
 
@@ -3363,6 +3364,7 @@ class FunASRGUIClient(tk.Tk):
         upload_end_time = None
         transcribe_start_time = None
         transcribe_end_time = None
+        subprocess_timed_out = False  # 标记子进程是否因等待服务器超时而结束
 
         try:
             logging.debug(f"调试信息: 执行速度测试命令: {' '.join(args)}")
@@ -3448,6 +3450,7 @@ class FunASRGUIClient(tk.Tk):
                         )
 
                 # 检测转写完成（匹配实际的日志输出格式）
+                # 优先级1: 收到 is_final=True 结束标志（最可靠的完成信号）
                 if (
                     "离线识别完成" in line
                     or "实时识别完成" in line
@@ -3468,6 +3471,37 @@ class FunASRGUIClient(tk.Tk):
                         logging.warning(
                             f"速度测试警告: 文件{self.test_file_index + 1}未检测到转写开始时间，无法计算转写耗时"
                         )
+
+                # 优先级2: 收到有效识别结果（服务器返回了文本但可能未设置 is_final）
+                # 当服务器未设置 is_final=True 时，识别结果输出是转写完成的直接证据
+                if (
+                    "识别结果:" in line
+                    and len(line) > len("识别结果:")  # 确保不是空结果
+                    and transcribe_end_time is None
+                ):
+                    transcribe_end_time = time.time()
+                    if transcribe_start_time is not None:
+                        logging.info(
+                            self.lang_manager.get(
+                                "speed_test_transcription_completed",
+                                self.test_file_index + 1,
+                                transcribe_end_time - transcribe_start_time,
+                            )
+                        )
+                        logging.info(
+                            f"速度测试: 通过识别结果输出检测到转写完成"
+                        )
+                    else:
+                        logging.warning(
+                            f"速度测试警告: 文件{self.test_file_index + 1}未检测到转写开始时间，无法计算转写耗时"
+                        )
+
+                # 检测子进程等待服务器超时（服务器在指定时间内未返回结果）
+                if "等待超时" in line:
+                    subprocess_timed_out = True
+                    logging.warning(
+                        f"速度测试警告: 文件{self.test_file_index + 1}等待服务器响应超时 - {line}"
+                    )
 
             # 确保进程结束（设置超时避免无限等待）
             try:
@@ -3516,7 +3550,17 @@ class FunASRGUIClient(tk.Tk):
                 if not transcribe_end_time:
                     missing.append("转写结束时间")
 
-                error_msg = f"未能获取到完整时间点: {', '.join(missing)}"
+                # 根据不同情况提供更有针对性的错误信息
+                if subprocess_timed_out and not transcribe_end_time:
+                    error_msg = (
+                        f"服务器在规定时间内未返回识别结果。"
+                        f"请检查: 1) 服务器是否正常运行; "
+                        f"2) 网络连接是否稳定; "
+                        f"3) 测试文件格式是否被服务器支持"
+                    )
+                else:
+                    error_msg = f"未能获取到完整时间点: {', '.join(missing)}"
+
                 logging.error(
                     self.lang_manager.get(
                         "speed_test_error_missing_timestamps", ", ".join(missing)
