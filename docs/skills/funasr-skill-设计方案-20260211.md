@@ -43,6 +43,7 @@ skills/
     │   ├── funasr_recognize.py           # 主脚本：语音识别（Agent友好）
     │   ├── funasr_probe.py               # 辅助脚本：服务探测
     │   ├── funasr_speed_test.py          # 辅助脚本：速度测试
+    │   ├── funasr_fileinfo.py            # 辅助脚本：文件信息查询（mutagen）
     │   └── lib/                          # 核心库（从 V3 精简抽取）
     │       ├── __init__.py
     │       ├── protocol_adapter.py       # 协议适配层
@@ -63,6 +64,7 @@ websocket_compat.py  ────原样复制────►  lib/websocket_comp
 simple_funasr_client.py ──重构────────►  funasr_recognize.py（Agent友好版）
 （新增）             ────────────────►  funasr_probe.py（独立CLI入口）
 （新增）             ────────────────►  funasr_speed_test.py（速度测试CLI入口）
+（新增）             ────────────────►  funasr_fileinfo.py（文件信息查询CLI入口）
 ```
 
 ### 2.3 导入策略
@@ -184,11 +186,11 @@ python funasr_probe.py \
 **CLI 接口**：
 
 ```bash
-# 自动查找测试音频（本地 Docker 通常需 --no-ssl）
-python funasr_speed_test.py --host 127.0.0.1 --port 10095 --no-ssl
+# 自动查找测试音频（默认 SSL 连接）
+python funasr_speed_test.py --host 127.0.0.1 --port 10095
 
 # 使用指定音频，3轮测试
-python funasr_speed_test.py --host 127.0.0.1 --port 10095 --audio test.wav --rounds 3 --no-ssl
+python funasr_speed_test.py --host 127.0.0.1 --port 10095 --audio test.wav --rounds 3
 ```
 
 **JSON 输出格式**：
@@ -224,6 +226,65 @@ python funasr_speed_test.py --host 127.0.0.1 --port 10095 --audio test.wav --rou
 **资产管理**：
 - `assets/test-for-speed.mp3` 由用户手动提供（推荐 5-30 秒的短音频）
 - 如果默认音频缺失且未指定 `--audio`，脚本返回错误提示联系 Skill 作者
+
+### 3.4 funasr_fileinfo.py — 文件信息查询脚本（2026-02-11 新增）
+
+**设计原则**：
+- 纯本地操作，零网络依赖
+- 使用 `mutagen` 库解析非 WAV/PCM 格式的音频/视频元数据
+- WAV 使用标准库 `wave` 模块精确解析
+- PCM 使用默认参数（16kHz, 16bit, mono）估算时长
+- 为 Agent 提供转写前的文件预分析能力（解决 Agent 无法获取文件时长的问题）
+
+**CLI 接口**：
+
+```bash
+# 查询单个文件
+python funasr_fileinfo.py input.wav
+
+# 查询多个文件
+python funasr_fileinfo.py file1.wav file2.mp4 file3.m4a
+
+# 使用 --audio 参数
+python funasr_fileinfo.py --audio file1.wav --audio file2.mp3
+```
+
+**JSON 输出格式**：
+
+```json
+{
+  "success": true,
+  "total_files": 2,
+  "parsed_ok": 2,
+  "parse_failed": 0,
+  "mutagen_available": true,
+  "files": [
+    {
+      "file_name": "input.wav",
+      "file_size_bytes": 5749278,
+      "file_size_display": "5.5MB",
+      "format": "wav",
+      "media_type": "audio",
+      "supported": true,
+      "duration_seconds": 179.48,
+      "duration_display": "2分59秒",
+      "sample_rate": 16000,
+      "channels": 1,
+      "parse_method": "wave",
+      "error": null
+    }
+  ],
+  "summary": {
+    "formats": ["WAV"],
+    "total_size_display": "5.5MB",
+    "total_duration_seconds": 179.48,
+    "total_duration_display": "2分59秒"
+  }
+}
+```
+
+**新增背景**：Agent 在批量转写时无法获取文件时长和格式信息（会错误地回退到 `ffprobe` 等系统工具），
+导致预估处理时间计算错误。此脚本填补了 Skill 的文件预分析能力空白。
 
 ---
 
@@ -284,6 +345,20 @@ python funasr_speed_test.py --host 127.0.0.1 --port 10095 --audio test.wav --rou
 | 1.5.3 | 更新 SKILL.md 增加速度测试文档 | 15分钟 | ✅ 已完成 |
 | 1.5.4 | 更新 protocol_guide.md 增加速度测试方法论 | 10分钟 | ✅ 已完成 |
 | 1.5.5 | 用户提供 test-for-speed.mp3 测试资产 | — | ✅ 已完成 |
+
+### Phase 1.6：文件信息查询与工作流优化（2026-02-11 新增）
+
+| 序号 | 任务 | 预计工作量 | 状态 |
+|------|------|-----------|------|
+| 1.6.1 | 开发 funasr_fileinfo.py | 20分钟 | ✅ 已完成 |
+| 1.6.2 | 重写 SKILL.md 工作流（合并为单一流程） | 15分钟 | ✅ 已完成 |
+| 1.6.3 | 更新设计方案文档 | 10分钟 | ✅ 已完成 |
+| 1.6.4 | mutagen 依赖从可选升级为推荐 | 5分钟 | ✅ 已完成 |
+
+**变更说明**：
+- 问题：Agent 执行批量转写时，无法获取文件时长（回退到 ffprobe 失败），导致预估处理时间错误
+- 问题：SKILL.md 存在"两套工作流"歧义，Agent 误解为速度测试是独立流程而跳过
+- 方案：新增 `funasr_fileinfo.py` 填补文件预分析能力；合并工作流为 6 步标准流程
 
 ### Phase 2：优化与验证（后续）
 

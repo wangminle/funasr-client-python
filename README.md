@@ -127,7 +127,7 @@ funasr-client-python/
 │   └── funasr-speech-recognition/       # FunASR speech recognition Skill
 │       ├── SKILL.md                     # Skill entry point (<500 lines)
 │       ├── assets/                      # Test audio assets
-│       ├── scripts/                     # CLI scripts (recognize, probe, speed test)
+│       ├── scripts/                     # CLI scripts (recognize, probe, speed test, file info)
 │       └── references/                  # Protocol documentation
 ├── Pipfile                              # Pipenv dependencies definition
 ├── Pipfile.lock                         # Pipenv locked versions

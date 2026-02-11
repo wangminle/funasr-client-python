@@ -1,6 +1,6 @@
 ---
 name: funasr-speech-recognition
-description: "FunASR speech recognition via WebSocket. Convert audio/video files to text using a FunASR server. Use when: (1) user needs speech-to-text or audio transcription, (2) connecting to a FunASR service for ASR, (3) batch transcribing audio/video files, (4) testing FunASR server connectivity and capabilities, (5) generating subtitles from audio, (6) measuring FunASR server performance/speed. Requires a running FunASR WebSocket server (local Docker or public test service at www.funasr.com:10096) and Python websockets>=10.0."
+description: "FunASR speech recognition via WebSocket. Convert audio/video files to text using a FunASR server. Use when: (1) user needs speech-to-text or audio transcription, (2) connecting to a FunASR service for ASR, (3) batch transcribing audio/video files, (4) testing FunASR server connectivity and capabilities, (5) generating subtitles from audio, (6) measuring FunASR server performance/speed, (7) inspecting audio/video file metadata (duration, format, codec). Requires a running FunASR WebSocket server (local Docker or public test service at www.funasr.com:10096) and Python websockets>=10.0."
 ---
 
 # FunASR Speech Recognition
@@ -11,21 +11,22 @@ Perform speech recognition by connecting to a FunASR WebSocket server. Handles p
 
 - Python 3.10+
 - `websockets>=10.0` — install with `pip install websockets`
-- Optional: `mutagen` (for MP3 duration parsing in speed tests)
+- `mutagen` — install with `pip install mutagen` (required for non-WAV/PCM file duration detection)
 - A running FunASR server (local or remote)
 
-Check availability first:
+Check and install dependencies:
 
 ```bash
 pip show websockets || pip install 'websockets>=10.0'
+pip show mutagen || pip install mutagen
 ```
 
 ## Quick Start
 
-Single file recognition on local Docker server (most setups are non-SSL):
+Single file recognition (SSL enabled by default):
 
 ```bash
-python scripts/funasr_recognize.py --host 127.0.0.1 --port 10095 --audio input.wav --no-ssl
+python scripts/funasr_recognize.py --host 127.0.0.1 --port 10095 --audio input.wav
 ```
 
 Using the public test server:
@@ -34,11 +35,93 @@ Using the public test server:
 python scripts/funasr_recognize.py --host www.funasr.com --port 10096 --audio input.wav
 ```
 
-If your local server is configured with TLS/WSS, remove `--no-ssl`.
+If SSL connection fails, try adding `--no-ssl` to fall back to plain WebSocket.
 
 ## Core Scripts
 
-### 1. Speech Recognition (`scripts/funasr_recognize.py`)
+### 1. File Info (`scripts/funasr_fileinfo.py`)
+
+Query audio/video file metadata before transcription. Use this to learn file duration, format, and size — essential for estimating processing time and setting proper timeouts.
+
+**Basic usage:**
+
+```bash
+python scripts/funasr_fileinfo.py FILE1 [FILE2 ...]
+```
+
+**Key parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `files` (positional) | (required) | One or more audio/video file paths |
+| `--audio` | (none) | Alternative way to specify files (repeatable: `--audio f1 --audio f2`) |
+| `--output` | stdout | Write result to file instead of stdout |
+| `--quiet` | false | Suppress log output (stderr) |
+
+**Supported formats:**
+
+| Category | Formats | Duration detection |
+|----------|---------|-------------------|
+| Audio (native) | WAV | `wave` module (precise, no extra dependency) |
+| Audio (native) | PCM | Estimated from file size (assumes 16kHz, 16bit, mono) |
+| Audio (mutagen) | MP3, FLAC, OGG, AAC, M4A, WMA, OPUS, AMR, AIFF | `mutagen` library (precise) |
+| Video (mutagen) | MP4, MKV, AVI, MOV, WebM, FLV, WMV, TS | `mutagen` library (precise) |
+
+**JSON output format:**
+
+```json
+{
+  "success": true,
+  "total_files": 2,
+  "parsed_ok": 2,
+  "parse_failed": 0,
+  "mutagen_available": true,
+  "files": [
+    {
+      "file_name": "meeting.wav",
+      "file_path": "/path/to/meeting.wav",
+      "file_size_bytes": 5749278,
+      "file_size_display": "5.5MB",
+      "format": "wav",
+      "media_type": "audio",
+      "supported": true,
+      "duration_seconds": 179.48,
+      "duration_display": "2分59秒",
+      "sample_rate": 16000,
+      "channels": 1,
+      "bit_depth": 16,
+      "codec": "pcm",
+      "bitrate_kbps": null,
+      "parse_method": "wave",
+      "error": null
+    }
+  ],
+  "summary": {
+    "formats": ["WAV"],
+    "total_size_display": "5.5MB",
+    "total_duration_seconds": 179.48,
+    "total_duration_display": "2分59秒"
+  },
+  "display_text": "📁 2 个文件 | 格式: WAV | 总大小: 5.5MB | 总时长: 2分59秒"
+}
+```
+
+**Exit codes:** 0=all files parsed, 1=argument error, 2=some files failed to parse.
+
+**Examples:**
+
+```bash
+# Single file
+python scripts/funasr_fileinfo.py input.wav
+
+# Multiple files (different formats)
+python scripts/funasr_fileinfo.py meeting.wav video.mp4 podcast.m4a
+
+# Save to file
+python scripts/funasr_fileinfo.py *.wav *.mp4 --output fileinfo.json --quiet
+```
+
+### 2. Speech Recognition (`scripts/funasr_recognize.py`)
 
 Convert audio to text. Outputs structured JSON to stdout by default.
 
@@ -54,7 +137,7 @@ python scripts/funasr_recognize.py --host HOST --port PORT --audio FILE
 |-----------|---------|-------------|
 | `--host` | (required) | FunASR server address |
 | `--port` | (required) | FunASR server port |
-| `--audio` | (required) | Audio file path (.wav, .pcm, .mp3, etc.), must be non-empty |
+| `--audio` | (required) | Audio file path (.wav, .pcm, .mp3, .mp4, .m4a, etc.), must be non-empty |
 | `--mode` | `offline` | Recognition mode: `offline`, `online`, `2pass` |
 | `--ssl` / `--no-ssl` | `--ssl` | Enable/disable SSL |
 | `--server-type` | `auto` | Server type: `auto`, `legacy`, `funasr_main` |
@@ -97,24 +180,24 @@ python scripts/funasr_recognize.py --host HOST --port PORT --audio FILE
 
 ```bash
 # Plain text output
-python scripts/funasr_recognize.py --host 127.0.0.1 --port 10095 --audio meeting.wav --format text --no-ssl
+python scripts/funasr_recognize.py --host 127.0.0.1 --port 10095 --audio meeting.wav --format text
 
 # SRT subtitles
-python scripts/funasr_recognize.py --host 127.0.0.1 --port 10095 --audio video.mp4 --format srt --output subtitles.srt --no-ssl
+python scripts/funasr_recognize.py --host 127.0.0.1 --port 10095 --audio video.mp4 --format srt --output subtitles.srt
 
 # 2pass mode (faster intermediate + accurate final)
-python scripts/funasr_recognize.py --host 127.0.0.1 --port 10095 --audio input.wav --mode 2pass --no-ssl
-
-# Without SSL
-python scripts/funasr_recognize.py --host 127.0.0.1 --port 10095 --audio input.wav --no-ssl
+python scripts/funasr_recognize.py --host 127.0.0.1 --port 10095 --audio input.wav --mode 2pass
 
 # Save JSON to file
-python scripts/funasr_recognize.py --host 127.0.0.1 --port 10095 --audio input.wav --output result.json --no-ssl
+python scripts/funasr_recognize.py --host 127.0.0.1 --port 10095 --audio input.wav --output result.json
+
+# If SSL fails, fall back to plain WebSocket
+python scripts/funasr_recognize.py --host 127.0.0.1 --port 10095 --audio input.wav --no-ssl
 ```
 
-### 2. Speed Test (`scripts/funasr_speed_test.py`)
+### 3. Speed Test (`scripts/funasr_speed_test.py`)
 
-Measure FunASR server upload speed (MB/s) and transcription speed (x realtime). Use this to benchmark server performance before production use.
+Measure FunASR server upload speed (MB/s) and transcription speed (x realtime). Run this before batch transcription to establish a performance baseline and calculate expected processing times.
 
 **Basic usage:**
 
@@ -183,19 +266,19 @@ python scripts/funasr_speed_test.py --host HOST --port PORT
 
 ```bash
 # Default: 2-round test using assets/test-for-speed.mp3
-python scripts/funasr_speed_test.py --host 127.0.0.1 --port 10095 --no-ssl
+python scripts/funasr_speed_test.py --host 127.0.0.1 --port 10095
 
-# 5-round test with custom audio
-python scripts/funasr_speed_test.py --host 127.0.0.1 --port 10095 --audio meeting.wav --rounds 5 --no-ssl
+# 5-round test with custom audio, for more stable benchmarks
+python scripts/funasr_speed_test.py --host 127.0.0.1 --port 10095 --audio meeting.wav --rounds 5
 
 # Save results to file, suppress logs
-python scripts/funasr_speed_test.py --host 127.0.0.1 --port 10095 --output speed_result.json --quiet --no-ssl
+python scripts/funasr_speed_test.py --host 127.0.0.1 --port 10095 --output speed_result.json --quiet
 
-# Test without SSL
+# If SSL fails, fall back to plain WebSocket
 python scripts/funasr_speed_test.py --host 127.0.0.1 --port 10095 --no-ssl
 ```
 
-### 3. Server Probe (`scripts/funasr_probe.py`)
+### 4. Server Probe (`scripts/funasr_probe.py`)
 
 Test FunASR server connectivity and detect capabilities. Always run this first when unsure if the server is available.
 
@@ -243,34 +326,100 @@ python scripts/funasr_probe.py --host HOST --port PORT
 
 ## Workflow
 
-Recommended workflow for transcribing audio:
+There is ONE standard workflow. Follow ALL steps in order. Do NOT skip steps.
 
-1. **Probe the server** to verify it's available:
-   ```bash
-   python scripts/funasr_probe.py --host HOST --port PORT
-   ```
-2. **Check the probe result** — if `success` is `true`, proceed.
-3. **Run recognition**:
-   ```bash
-   python scripts/funasr_recognize.py --host HOST --port PORT --audio FILE
-   ```
-4. **Parse the JSON output** — the `text` field contains the transcription.
+Steps 1–3 are **one-time setup** (run once per session). Steps 4–6 are **per-batch** (repeat for each set of files).
 
-### Performance benchmarking workflow:
+### Step 1 — Check dependencies
 
-1. **Probe the server** (same as above).
-2. **Run speed test** to measure performance:
-   ```bash
-   python scripts/funasr_speed_test.py --host HOST --port PORT --rounds 3
-   ```
-3. **Interpret results** — `transcribe_speed_x` shows how many times faster than realtime. Values >10x are good; >30x is excellent.
+```bash
+pip show websockets || pip install 'websockets>=10.0'
+pip show mutagen || pip install mutagen
+```
+
+### Step 2 — Probe the server
+
+Verify the FunASR server is reachable and responsive:
+
+```bash
+python scripts/funasr_probe.py --host HOST --port PORT
+```
+
+Check the JSON output: if `"success": true`, proceed. If not, check server address/port and SSL settings.
+
+### Step 3 — Run speed test
+
+Establish a performance baseline for the current server and network conditions. This baseline is reused for all subsequent files.
+
+```bash
+python scripts/funasr_speed_test.py --host HOST --port PORT --output /tmp/funasr_speed_result.json
+```
+
+From the output, note the `transcribe_speed_x` value:
+- **>30x** — excellent, server is fast
+- **10x–30x** — good, normal performance
+- **<10x** — slow, increase `--timeout` for long audio
+
+**Reusing speed test results:** If `/tmp/funasr_speed_result.json` already exists and was created recently (within the same session or the last few hours), read it directly instead of re-running. Only re-run when the server address changes, network conditions may have shifted, or significant time has elapsed.
+
+---
+
+**Steps 4–6 below can be repeated for each batch of files.**
+
+### Step 4 — Analyze input files
+
+Before transcribing, inspect all target files to learn their duration, format, and size:
+
+```bash
+python scripts/funasr_fileinfo.py FILE1 [FILE2 ...] --quiet
+```
+
+From the output, note:
+- `duration_seconds` — needed to estimate processing time
+- `format` and `supported` — confirm the file can be processed
+- `file_size_display` — large files (>50MB) may need higher `--timeout`
+
+If a file's `supported` is `false`, it may still work (FunASR server uses FFmpeg internally), but results are not guaranteed.
+
+**Estimating processing time:** Combine file duration (from this step) with the speed baseline (from Step 3):
+
+```
+expected_time = duration_seconds / transcribe_speed_x
+```
+
+For example: a 10-minute (600s) audio file with 15x speed ≈ 40 seconds processing time. Use this to set `--timeout` (add a 2x safety margin).
+
+### Step 5 — Run recognition
+
+Transcribe each file:
+
+```bash
+python scripts/funasr_recognize.py --host HOST --port PORT --audio FILE [--timeout TIMEOUT]
+```
+
+For batch processing, loop through files and save results individually:
+
+```bash
+python scripts/funasr_recognize.py --host HOST --port PORT --audio FILE1 --output result1.json
+python scripts/funasr_recognize.py --host HOST --port PORT --audio FILE2 --output result2.json
+```
+
+### Step 6 — Parse results
+
+The JSON output `text` field contains the transcription. Key fields:
+- `success` — whether recognition succeeded
+- `text` — transcribed text
+- `duration_ms` — actual processing time (compare with Step 4 estimate)
+- `timestamp` / `stamp_sents` — word/sentence level timestamps (if available)
+
+To process more files, return to **Step 4** with the next batch.
 
 ## Common Server Addresses
 
 | Server | Host | Port | SSL | Notes |
 |--------|------|------|-----|-------|
 | Public test | `www.funasr.com` | `10096` | Yes | Official FunASR test service |
-| Local Docker | `127.0.0.1` | `10095` | Usually No | Add `--no-ssl` unless your server is configured with TLS |
+| Local Docker | `127.0.0.1` | `10095` | Yes (default) | SSL enabled by default; add `--no-ssl` only if SSL connection fails |
 
 ## Protocol Reference
 
@@ -281,10 +430,12 @@ For details on the FunASR WebSocket protocol, server types, and `is_final` seman
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | `error_code: 2` connection refused | Server not running or wrong address | Verify host/port, run probe first |
-| `error_code: 3` timeout | Audio too long or server overloaded | Increase `--timeout`, check server |
+| `error_code: 3` timeout | Audio too long or server overloaded | Increase `--timeout`, check server load |
 | `error_code: 1` empty audio file | Audio file exists but is zero bytes | Use a non-empty audio file; script validates file size before sending |
 | Probe shows `reachable` but not `responsive` | Server may not respond to short silence | Normal for some setups, proceed with recognition |
-| SSL error | Server uses self-signed cert | Default config handles this; if issues persist, try `--no-ssl` |
-| Speed test `transcribe_speed_x` is `null` | Cannot determine audio duration (non-WAV/PCM format without mutagen) | Use WAV/PCM file, or install `mutagen` (`pip install mutagen`) |
+| SSL handshake error | Server does not support SSL or uses incompatible cert | Try `--no-ssl` to fall back to plain WebSocket |
+| File info `duration_seconds` is `null` | mutagen not installed or unsupported format | Install mutagen: `pip install mutagen` |
+| File info `supported` is `false` | Unknown file extension | May still work if FunASR server supports the format; test with a small sample first |
+| Speed test `transcribe_speed_x` is `null` | Cannot determine audio duration | Run `funasr_fileinfo.py` first; install `mutagen` if needed |
 | Speed test all rounds failed | Server may be overloaded or unreachable | Run probe first, reduce `--rounds`, increase `--timeout` |
 | Speed test "速度测试不可用" | `assets/test-for-speed.mp3` missing | Contact Skill author, or use `--audio` with your own file |

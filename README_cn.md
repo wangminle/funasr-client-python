@@ -127,7 +127,7 @@ funasr-client-python/
 │   └── funasr-speech-recognition/       # FunASR 语音识别 Skill
 │       ├── SKILL.md                     # Skill 入口指令文件（<500行）
 │       ├── assets/                      # 测试音频资产
-│       ├── scripts/                     # CLI 脚本（识别、探测、速度测试）
+│       ├── scripts/                     # CLI 脚本（识别、探测、速度测试、文件信息）
 │       └── references/                  # 协议参考文档
 ├── Pipfile                              # Pipenv依赖定义
 ├── Pipfile.lock                         # Pipenv锁定版本

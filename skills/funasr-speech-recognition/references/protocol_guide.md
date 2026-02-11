@@ -10,8 +10,9 @@ FunASR uses WebSocket for audio streaming and recognition. The client sends JSON
 - **Subprotocol**: `binary`
 - **Default ports**: 10095 (local), 10096 (public test)
 - **Practical default**:
-  - Local Docker deployments are usually `ws://127.0.0.1:10095` (non-SSL)
-  - Public test service is `wss://www.funasr.com:10096` (SSL)
+  - This Skill defaults to `wss://` (SSL) for all connections
+  - Public test service: `wss://www.funasr.com:10096`
+  - Local Docker: `wss://127.0.0.1:10095` — if SSL fails, fall back with `--no-ssl`
 
 ## Message Flow
 
@@ -163,7 +164,7 @@ docker run -p 10095:10095 -it registry.cn-hangzhou.aliyuncs.com/funasr_repo/funa
 # See: https://github.com/modelscope/FunASR
 ```
 
-Default container examples commonly expose non-SSL WebSocket on port `10095`, so clients usually need `--no-ssl` for local testing.
+This Skill defaults to SSL (`wss://`). If the container does not support SSL, add `--no-ssl` to fall back to plain WebSocket.
 
 ### Public Test Server
 
@@ -223,7 +224,7 @@ When running multiple rounds (`--rounds N`):
 - Each round is an independent WebSocket connection + full recognition cycle
 - Results are averaged across successful rounds
 - Failed rounds are tracked but excluded from averages
-- Recommended: 3 rounds for stable benchmarks
+- Default is 2 rounds; for more stable results, use `--rounds N` to specify additional rounds
 
 ### Test Audio Asset
 
