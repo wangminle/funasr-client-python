@@ -123,6 +123,12 @@ funasr-client-python/
 │   └── FunASR-main/                     # FunASR官方仓库参考
 ├── resources/                            # 资源文件
 │   └── demo/                            # Demo音视频文件
+├── skills/                              # AI Agent Skills
+│   └── funasr-speech-recognition/       # FunASR 语音识别 Skill
+│       ├── SKILL.md                     # Skill 入口指令文件（<500行）
+│       ├── assets/                      # 测试音频资产
+│       ├── scripts/                     # CLI 脚本（识别、探测、速度测试）
+│       └── references/                  # 协议参考文档
 ├── Pipfile                              # Pipenv依赖定义
 ├── Pipfile.lock                         # Pipenv锁定版本
 ├── README.md                            # 英文README

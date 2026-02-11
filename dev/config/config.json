@@ -50,9 +50,9 @@
                 "WebSocket连接成功",
                 "离线模式探测成功"
             ],
-            "probe_duration_ms": 198.7740993499756
+            "probe_duration_ms": 628.6659240722656
         },
-        "last_probe_time": "2026-02-08T21:35:58.422639"
+        "last_probe_time": "2026-02-11T12:41:10.049379"
     },
     "presets": {
         "public_cloud": {

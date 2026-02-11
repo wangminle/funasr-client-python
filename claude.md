@@ -1,6 +1,6 @@
 # 项目整体原则
 ## 目录结构
-1. 主项目目录是/funasr-client-python，主项目目录中包含/dev、/src、/docs、/tests和/ref五个目录；
+1. 主项目目录是/funasr-client-python，主项目目录中包含/dev、/src、/docs、/tests、/ref、/skills和/resources等目录；
 2. 开发任务使用的目录是/src目录；当前版本为V3。
 3. **client-v2是历史版本的归档目录，client-v2目录中的所有代码和配置文件不允许做任何修改。** 仅供参考和对照使用。
 4. 开发过程中临时使用的配置和结果使用/dev目录存储，主要包括/config、/logs和/output三个主要目录；
@@ -11,6 +11,8 @@
 9. 所有项目进行过程中撰写的文档，都放入/docs目录中；这个目录中的所有文档，都使用markdown格式；
 10. 所有测试脚本，测试临时数据，测试方案和测试总结文档都放入/tests目录中；
 11. 所有参考代码和文档都放入/ref目录中；这个目录中的文档不允许任何修改和调整；
+12. /skills目录用于存放 AI Agent Skill 代码和文档，其中 `funasr-speech-recognition` 是核心 Skill，包含独立的脚本、协议库和参考文档；
+13. /resources目录用于存放项目资源文件（如 demo 音视频文件）；
 
 
 ## 文档管理
