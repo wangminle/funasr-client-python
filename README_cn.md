@@ -212,7 +212,7 @@ funasr-client-python/
 ### 技术成果
 
 *   **新增模块**: `protocol_adapter.py`、`server_probe.py`、`websocket_compat.py`、`config_utils.py`
-*   **测试覆盖**: 316个单元测试通过，测试报告齐全
+*   **测试覆盖**: 测试覆盖完善，测试报告齐全
 *   **代码质量**: Lint检查通过（black, isort, flake8, mypy），中文注释完整
 *   **验收标准**: 100% 通过 (6/6)
 

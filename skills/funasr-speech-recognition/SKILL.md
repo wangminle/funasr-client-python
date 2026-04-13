@@ -9,16 +9,16 @@ Perform speech recognition by connecting to a FunASR WebSocket server. Handles p
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.12 (skill scripts compatible with 3.10+)
 - `websockets>=10.0` — install with `pip install websockets`
-- `mutagen` — install with `pip install mutagen` (required for non-WAV/PCM file duration detection)
+- `mutagen>=1.47.0` — install with `pip install 'mutagen>=1.47.0'` (required for non-WAV/PCM file duration detection)
 - A running FunASR server (local or remote)
 
 Check and install dependencies:
 
 ```bash
 pip show websockets || pip install 'websockets>=10.0'
-pip show mutagen || pip install mutagen
+pip show mutagen || pip install 'mutagen>=1.47.0'
 ```
 
 ## Quick Start
@@ -64,8 +64,8 @@ python scripts/funasr_fileinfo.py FILE1 [FILE2 ...]
 |----------|---------|-------------------|
 | Audio (native) | WAV | `wave` module (precise, no extra dependency) |
 | Audio (native) | PCM | Estimated from file size (assumes 16kHz, 16bit, mono) |
-| Audio (mutagen) | MP3, FLAC, OGG, AAC, M4A, WMA, OPUS, AMR, AIFF | `mutagen` library (precise) |
-| Video (mutagen) | MP4, MKV, AVI, MOV, WebM, FLV, WMV, TS | `mutagen` library (precise) |
+| Audio (mutagen) | MP3, FLAC, OGG, AAC, M4A, WMA, OPUS, AMR, AIFF, AIF | `mutagen` library (precise) |
+| Video (mutagen) | MP4, MKV, AVI, MOV, WebM, FLV, WMV, TS, M4V | `mutagen` library (precise) |
 
 **JSON output format:**
 
@@ -334,7 +334,7 @@ Steps 1–3 are **one-time setup** (run once per session). Steps 4–6 are **per
 
 ```bash
 pip show websockets || pip install 'websockets>=10.0'
-pip show mutagen || pip install mutagen
+pip show mutagen || pip install 'mutagen>=1.47.0'
 ```
 
 ### Step 2 — Probe the server

@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pipenv run:*)",
+      "Bash(python src/python-gui-client/funasr_gui_client_v3.py、)",
+      "Bash(curl -sL https://raw.githubusercontent.com/alibaba-damo-academy/FunASR/main/runtime/webui/package.json)",
+      "Bash(curl -sL https://raw.githubusercontent.com/modelscope/FunASR/main/runtime/webui/package.json)",
+      "Bash(curl -sL \"https://api.github.com/search/repositories?q=FunASR\")",
+      "Bash(curl -sL \"https://api.github.com/repos/modelscope/FunASR/contents/runtime\")",
+      "Bash(curl -sL \"https://api.github.com/repos/modelscope/FunASR/contents/runtime/html5\")",
+      "Bash(curl -sL \"https://api.github.com/repos/modelscope/FunASR/contents/runtime/http\")",
+      "Bash(curl -sL \"https://api.github.com/search/code?q=repo:modelscope/FunASR+filename:package.json\")",
+      "Bash(curl -sL \"https://api.github.com/search/code?q=repo:modelscope/FunASR+path:web-pages\")",
+      "Bash(curl -sL \"https://api.github.com/repos/modelscope/FunASR/git/trees/main?recursive=1\")",
+      "Bash(curl -sL \"https://github.com/modelscope/FunASR/tree/main/runtime\")",
+      "Bash(curl -sL \"https://api.github.com/repos/modelscope/FunASR/contents/\")",
+      "Bash(curl -sL \"https://api.github.com/search/code?q=repo:modelscope/FunASR+web-pages\")",
+      "Bash(curl -sL \"https://api.github.com/search/code?q=repo:modelscope/FunASR+axios\")",
+      "Bash(curl -sL \"https://raw.githubusercontent.com/modelscope/FunASR/main/runtime/html5/static/index.html\")",
+      "Bash(curl -sL \"https://raw.githubusercontent.com/modelscope/FunASR/main/runtime/html5/readme.md\")",
+      "Bash(curl -sL \"https://api.github.com/repos/modelscope/FunASR/contents/runtime/html5/static\")",
+      "Bash(curl -sLO https://raw.githubusercontent.com/modelscope/FunASR/main/runtime/html5/static/index.html)",
+      "Bash(curl -sLO https://raw.githubusercontent.com/modelscope/FunASR/main/runtime/html5/static/main.js)",
+      "Bash(curl -sLO https://raw.githubusercontent.com/modelscope/FunASR/main/runtime/html5/static/pcm.js)",
+      "Bash(curl -sLO https://raw.githubusercontent.com/modelscope/FunASR/main/runtime/html5/static/recorder-core.js)",
+      "Bash(curl -sLO https://raw.githubusercontent.com/modelscope/FunASR/main/runtime/html5/static/wav.js)",
+      "Bash(curl:*)"
+    ]
+  }
+}

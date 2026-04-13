@@ -358,7 +358,10 @@ async def record_from_scp(chunk_begin: int, chunk_size: int) -> None:
                 break
 
     log("处理完成，关闭连接")
-    await websocket.close()
+    try:
+        await websocket.close()
+    except Exception as e:
+        log(f"关闭WebSocket连接时异常（可忽略）: {e}")
 
 
 def read_audio_file(wav_path: str, default_sample_rate: int) -> tuple:
@@ -741,11 +744,23 @@ def one_thread(id: int, chunk_begin: int, chunk_size: int) -> None:
     if args is None:
         args = parser.parse_args()
         args.chunk_size = [int(x.strip()) for x in args.chunk_size.split(",")]
+        if len(args.chunk_size) < 3:
+            print(
+                f"错误: --chunk_size 需要3个逗号分隔的值，"
+                f"当前仅提供了 {len(args.chunk_size)} 个",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    success = loop.run_until_complete(ws_client(id, chunk_begin, chunk_size))
-    sys.exit(0 if success else 1)
+    try:
+        overall_success = loop.run_until_complete(ws_client(id, chunk_begin, chunk_size))
+    finally:
+        loop.close()
+
+    if not overall_success:
+        sys.exit(1)
 
 
 def main() -> None:
@@ -771,8 +786,15 @@ def main() -> None:
     # CLI 模式下解析参数（避免 import 阶段解析导致的副作用）
     global args
     args = parser.parse_args()
-    # 转换 chunk_size 为整数列表
+    # 转换 chunk_size 为整数列表并校验长度
     args.chunk_size = [int(x.strip()) for x in args.chunk_size.split(",")]
+    if len(args.chunk_size) < 3:
+        print(
+            f"错误: --chunk_size 需要3个逗号分隔的值 (如 '5,10,5')，"
+            f"当前仅提供了 {len(args.chunk_size)} 个值: {args.chunk_size}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     print(f"参数: {args}")
     print(f"V3 新增参数: server_type={args.server_type}, svs_lang={args.svs_lang}")

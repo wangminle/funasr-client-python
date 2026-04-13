@@ -13,9 +13,15 @@ import asyncio
 import json
 import logging
 import ssl
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
+
+# asyncio.timeout 需要 Python >= 3.11；项目要求 3.12，
+# 但若被低版本误用，在此给出明确错误而非 AttributeError
+if sys.version_info < (3, 11):
+    raise RuntimeError("server_probe 模块需要 Python >= 3.11 (asyncio.timeout)")
 
 # WebSocket 兼容层：处理不同 websockets 版本的参数差异
 from websocket_compat import connect_websocket
@@ -509,9 +515,15 @@ class ServerProbe:
         except asyncio.TimeoutError:
             caps.probe_notes.append("2pass探测连接超时")
             logger.warning("2pass探测连接超时")
+        except ConnectionRefusedError as e:
+            caps.probe_notes.append(f"2pass探测连接被拒绝: {e}")
+            logger.warning(f"2pass探测连接被拒绝: {e}")
+        except OSError as e:
+            caps.probe_notes.append(f"2pass探测网络错误: {e}")
+            logger.warning(f"2pass探测网络错误: {e}")
         except Exception as e:
-            caps.probe_notes.append(f"2pass探测新建连接异常: {e}")
-            logger.warning(f"2pass探测新建连接异常: {e}")
+            caps.probe_notes.append(f"2pass探测新建连接异常({type(e).__name__}): {e}")
+            logger.warning(f"2pass探测新建连接异常({type(e).__name__}): {e}")
 
     def _infer_server_type(self, caps: ServerCapabilities) -> None:
         """根据探测结果推断服务端类型

@@ -958,7 +958,7 @@ class StatusManager:
         if self.temp_status_timer:
             try:
                 self.status_bar.after_cancel(self.temp_status_timer)
-            except:
+            except Exception:
                 pass
             self.temp_status_timer = None
         
@@ -2902,15 +2902,18 @@ class FunASRGUIClient(tk.Tk):
         try:
             logging.info(self.lang_manager.get("app_closing"))
 
+            # 先移除 GUI 日志处理器，防止窗口销毁后后台线程写日志触发 TclError
+            if hasattr(self, "gui_handler") and self.gui_handler:
+                logging.getLogger().removeHandler(self.gui_handler)
+
             # 清除转写时长管理器的会话数据
             self.time_manager.clear_session_data()
             logging.debug("转写时长管理器会话数据已清除")
 
             self.save_config()
-            self.destroy()
         except Exception as e:
             logging.error(f"系统错误: 关闭窗口时出错: {e}", exc_info=True)
-            messagebox.showerror("错误", f"关闭窗口时出错: {e}")
+        finally:
             self.destroy()
 
     def check_dependencies(self):
@@ -2947,12 +2950,21 @@ class FunASRGUIClient(tk.Tk):
             logging.debug(self.lang_manager.get("all_dependencies_installed"))
             return True
 
+    # pip install 允许安装的白名单
+    _PIP_INSTALL_WHITELIST = {"websockets", "mutagen"}
+
     def install_dependencies(self, packages):
-        """安装所需的依赖包"""
+        """安装所需的依赖包（仅限白名单内的包）"""
         for package in packages:
+            if package not in self._PIP_INSTALL_WHITELIST:
+                logging.error(f"安全限制: 包 '{package}' 不在允许安装的白名单中，跳过")
+                continue
             logging.info(self.lang_manager.get("installing_dependency", package))
             try:
-                subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+                subprocess.check_call(
+                    [sys.executable, "-m", "pip", "install", package],
+                    stdin=subprocess.DEVNULL,
+                )
                 logging.info(self.lang_manager.get("install_success", package))
             except subprocess.CalledProcessError as e:
                 logging.error(self.lang_manager.get("install_failed", package, e))
@@ -3034,8 +3046,8 @@ class FunASRGUIClient(tk.Tk):
     def _test_connection(self, ip, port, ssl_enabled):
         """在后台线程中测试WebSocket连接"""
         try:
-            # 检查并安装依赖
-            required_packages = ["websockets", "asyncio"]
+            # 检查并安装依赖（asyncio 是标准库，无需检查）
+            required_packages = ["websockets"]
             missing_packages = []
 
             for package in required_packages:
@@ -3053,11 +3065,10 @@ class FunASRGUIClient(tk.Tk):
                 logging.info(self.lang_manager.get("auto_installing"))
                 if not self.install_dependencies(missing_packages):
                     logging.error(self.lang_manager.get("install_failed_cant_connect"))
-                    # 使用StatusManager显示错误状态
-                    self.status_manager.set_error(
+                    self.after(0, lambda: self.status_manager.set_error(
                         self.lang_manager.get("error_msg", "依赖安装失败")
-                    )
-                    self.connect_button.config(state=tk.NORMAL)
+                    ))
+                    self.after(0, lambda: self.connect_button.config(state=tk.NORMAL))
                     return
                 logging.info(self.lang_manager.get("install_completed_continue"))
 
@@ -3077,12 +3088,15 @@ class FunASRGUIClient(tk.Tk):
             logging.error(
                 self.lang_manager.get("connection_error", str(e)), exc_info=True
             )
-            # 使用StatusManager显示错误状态
-            self.status_manager.set_error(self.lang_manager.get("error_msg", str(e)))
+            # 先固化异常信息为字符串，避免 except 块结束后 e 被清理导致 NameError
+            error_text = str(e)
+            self.after(0, lambda: self.status_manager.set_error(
+                self.lang_manager.get("error_msg", error_text)
+            ))
             self.connection_status = False
         finally:
-            # 恢复按钮状态
-            self.connect_button.config(state=tk.NORMAL)
+            # 通过 after 回调安全地在主线程恢复按钮状态
+            self.after(0, lambda: self.connect_button.config(state=tk.NORMAL))
 
     def _find_script_path(self):
         """查找 simple_funasr_client.py 脚本路径
@@ -3267,35 +3281,44 @@ class FunASRGUIClient(tk.Tk):
             self.status_manager.set_error(self.lang_manager.get("please_connect_server"))
             return
 
-        # 如果未连接服务器，先尝试连接
+        # 如果未连接服务器，先尝试连接（非阻塞方式，通过 after 轮询等待结果）
         if not self.connection_status:
             logging.info("系统事件: 正在进行连接测试...")
-            # 创建连接测试线程
+            # 禁用按钮，防止连接预检期间重复点击
+            self.start_button.config(state=tk.DISABLED)
+            self.select_button.config(state=tk.DISABLED)
+
             thread = threading.Thread(
                 target=self._test_connection,
                 args=(ip, port, self.use_ssl_var.get()),
                 daemon=True,
             )
             thread.start()
-            # 等待连接测试完成
-            thread.join(timeout=6)  # 最多等待6秒
 
-            # 刷新 Tk 事件队列：连接测试线程通过 after(0, ...) 调度
-            # _update_connection_indicator，但主线程被 join() 阻塞期间
-            # after 回调无法执行，需要在此处显式刷新事件队列
-            self.update()
-
-            logging.debug(
-                f"调试信息: 连接测试线程完成, 连接状态: {self.connection_status}"
-            )
-
-            # 检查连接状态
-            if not self.connection_status:
-                logging.warning("系统警告: 服务器连接测试未成功，但仍将尝试识别")
-                logging.warning(
-                    "用户提示: 如果识别失败，请先使用'连接服务器'按钮测试连接"
+            def _wait_connection_then_recognize(remaining_ms=6000):
+                """非阻塞等待连接测试线程完成，然后继续识别流程"""
+                if thread.is_alive() and remaining_ms > 0:
+                    self.after(200, _wait_connection_then_recognize, remaining_ms - 200)
+                    return
+                logging.debug(
+                    f"调试信息: 连接测试线程完成, 连接状态: {self.connection_status}"
                 )
+                if not self.connection_status:
+                    logging.warning("系统警告: 服务器连接测试未成功，但仍将尝试识别")
+                    logging.warning(
+                        "用户提示: 如果识别失败，请先使用'连接服务器'按钮测试连接"
+                    )
+                # 按钮状态由 _continue_start_recognition 内部管理，
+                # 成功时保持禁用（识别进程结束后恢复），失败时在此恢复
+                self._continue_start_recognition(ip, port, audio_in)
 
+            _wait_connection_then_recognize()
+            return
+
+        self._continue_start_recognition(ip, port, audio_in)
+
+    def _continue_start_recognition(self, ip, port, audio_in):
+        """连接测试完成后继续执行识别流程（从计算转写时长开始）"""
         # 计算转写时长
         wait_timeout, estimate_time = self.time_manager.calculate_transcribe_times(
             audio_in
@@ -3543,6 +3566,7 @@ class FunASRGUIClient(tk.Tk):
                     stderr=subprocess.PIPE,
                     text=True,
                     encoding="utf-8",
+                    errors="replace",
                     bufsize=1,
                     creationflags=(
                         subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -3556,8 +3580,8 @@ class FunASRGUIClient(tk.Tk):
                             if not err_line:
                                 break
                             logging.error(f"{self.lang_manager.get('subprocess_error')}\n{err_line.strip()}")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logging.debug(f"读取子进程 stderr 时异常: {e}")
 
                 stderr_thread = threading.Thread(
                     target=_read_stderr_stream, args=(process.stderr,), daemon=True
@@ -3913,6 +3937,14 @@ class FunASRGUIClient(tk.Tk):
                 # 确保进程被终止（如果它仍在运行）
                 if process and process.poll() is None:
                     self._terminate_process_safely(process, timeout=5, process_name="识别进程")
+                # 关闭子进程的 stdout/stderr 管道，防止文件描述符泄漏
+                if process:
+                    for pipe in (process.stdout, process.stderr):
+                        if pipe:
+                            try:
+                                pipe.close()
+                            except Exception:
+                                pass
 
         # 启动超时监控 - 使用动态计算的wait_timeout（修复：使用绝对时间判断）
         def check_timeout():
@@ -4301,41 +4333,51 @@ class FunASRGUIClient(tk.Tk):
             )
             return
 
-        # 如果未连接服务器，先尝试连接
+        # 如果未连接服务器，先尝试连接（非阻塞方式，通过 after 轮询等待结果）
         if not self.connection_status:
             logging.info("系统事件: 正在进行连接测试...")
-            # 创建连接测试线程
+            # 禁用按钮并设置标志位，防止连接预检期间重复点击
+            self.speed_test_button.config(state=tk.DISABLED)
+            self.speed_test_running = True
+
             thread = threading.Thread(
                 target=self._test_connection,
                 args=(ip, port, self.use_ssl_var.get()),
                 daemon=True,
             )
             thread.start()
-            # 等待连接测试完成
-            thread.join(timeout=6)  # 最多等待6秒
 
-            # 刷新 Tk 事件队列：连接测试线程通过 after(0, ...) 调度
-            # _update_connection_indicator，但主线程被 join() 阻塞期间
-            # after 回调无法执行，需要在此处显式刷新事件队列
-            self.update()
-
-            # 检查连接状态
-            if not self.connection_status:
-                logging.warning(
-                    "系统警告: 服务器连接测试未成功，无法进行速度测试"
-                )  # 日志保留
-                # 使用StatusManager显示错误状态
-                self.status_manager.set_error(
-                    self.lang_manager.get(
-                        "error_msg", self.lang_manager.get("please_connect_server")
+            def _wait_connection_then_speed_test(remaining_ms=6000):
+                """非阻塞等待连接测试线程完成，然后继续速度测试流程"""
+                if thread.is_alive() and remaining_ms > 0:
+                    self.after(200, _wait_connection_then_speed_test, remaining_ms - 200)
+                    return
+                if not self.connection_status:
+                    logging.warning(
+                        "系统警告: 服务器连接测试未成功，无法进行速度测试"
                     )
-                )  # 状态栏提示连接错误
-                messagebox.showerror(
-                    self.lang_manager.get("connection_error", ""),
-                    self.lang_manager.get("please_connect_server"),
-                )  # 弹窗提示连接错误
-                return
+                    self.status_manager.set_error(
+                        self.lang_manager.get(
+                            "error_msg", self.lang_manager.get("please_connect_server")
+                        )
+                    )
+                    messagebox.showerror(
+                        self.lang_manager.get("connection_error", ""),
+                        self.lang_manager.get("please_connect_server"),
+                    )
+                    # 恢复按钮和标志位
+                    self.speed_test_running = False
+                    self.speed_test_button.config(state=tk.NORMAL)
+                    return
+                self._continue_start_speed_test(ip, port)
 
+            _wait_connection_then_speed_test()
+            return
+
+        self._continue_start_speed_test(ip, port)
+
+    def _continue_start_speed_test(self, ip, port):
+        """连接测试完成后继续执行速度测试流程"""
         # 初始化测试相关变量
         self.speed_test_running = True
         self.test_file_index = 0
@@ -4503,6 +4545,7 @@ class FunASRGUIClient(tk.Tk):
         transcribe_start_time = None
         transcribe_end_time = None
         subprocess_timed_out = False
+        process = None
 
         try:
             logging.debug(f"调试信息: 执行速度测试命令: {' '.join(args)}")
@@ -4512,6 +4555,7 @@ class FunASRGUIClient(tk.Tk):
                 stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
+                errors="replace",
                 bufsize=1,
                 creationflags=(
                     subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -4525,8 +4569,8 @@ class FunASRGUIClient(tk.Tk):
                         if not err_line:
                             break
                         logging.error(f"{self.lang_manager.get('subprocess_error')}\n{err_line.strip()}")
-                except Exception:
-                    pass
+                except Exception as e:
+                    logging.debug(f"读取速度测试子进程 stderr 时异常: {e}")
 
             err_thread = threading.Thread(target=_read_stderr_stream, args=(process.stderr,), daemon=True)
             err_thread.start()
@@ -4723,6 +4767,15 @@ class FunASRGUIClient(tk.Tk):
             if process and process.poll() is None:
                 self._terminate_process_safely(process, timeout=5, process_name="速度测试进程(异常)")
             self.after(0, self._handle_test_error, str(e))
+        finally:
+            # 关闭子进程的 stdout/stderr 管道，防止文件描述符泄漏
+            if process:
+                for pipe in (process.stdout, process.stderr):
+                    if pipe:
+                        try:
+                            pipe.close()
+                        except Exception:
+                            pass
 
     def _handle_test_error(self, error_msg):
         """处理测试过程中的错误"""

@@ -38,7 +38,7 @@ skills/
     ├── SKILL.md                          # Skill 入口指令文件（<500行）
     ├── assets/
     │   ├── README.md                     # 资产目录说明
-    │   └── test-for-speed.mp3            # 速度测试默认音频（由用户提供）
+    │   └── test-for-speed.mp3            # 速度测试默认音频（仓库自带，可替换）
     ├── scripts/
     │   ├── funasr_recognize.py           # 主脚本：语音识别（Agent友好）
     │   ├── funasr_probe.py               # 辅助脚本：服务探测
@@ -180,7 +180,7 @@ python funasr_probe.py \
 **设计原则**：
 - 精确测量上传速度（MB/s）和转写倍速（x realtime）
 - 支持多轮测试取平均值，提高数据可靠性
-- 音频源选择：用户指定音频 > assets/test-for-speed.mp3（缺失则报错）
+- 音频源选择：用户指定音频 > 仓库自带 assets/test-for-speed.mp3（缺失则报错）
 - JSON 结构化输出，与 `funasr_recognize.py` 保持一致的错误处理风格
 
 **CLI 接口**：
@@ -224,7 +224,7 @@ python funasr_speed_test.py --host 127.0.0.1 --port 10095 --audio test.wav --rou
 - `transcribe_speed_x = audio_duration_seconds / transcribe_time_seconds`
 
 **资产管理**：
-- `assets/test-for-speed.mp3` 由用户手动提供（推荐 5-30 秒的短音频）
+- `assets/test-for-speed.mp3` 为仓库自带默认音频（推荐 5-30 秒短音频，可替换）
 - 如果默认音频缺失且未指定 `--audio`，脚本返回错误提示联系 Skill 作者
 
 ### 3.4 funasr_fileinfo.py — 文件信息查询脚本（2026-02-11 新增）
@@ -373,7 +373,7 @@ python funasr_fileinfo.py --audio file1.wav --audio file2.mp3
 | 序号 | 任务 | 说明 |
 |------|------|------|
 | 3.1 | 根据实际使用反馈优化 SKILL.md | 触发词、示例补充 |
-| 3.2 | 增加 SRT 字幕输出支持 | 可选功能 |
+| 3.2 | 增加 SRT 字幕输出支持 | ✅ 已完成 |
 | 3.3 | 增加批量识别模式 | 支持 .scp 文件列表 |
 
 ---

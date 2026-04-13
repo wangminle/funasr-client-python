@@ -212,7 +212,7 @@ funasr-client-python/
 ### Technical Achievements
 
 *   **New Modules**: `protocol_adapter.py`, `server_probe.py`, `websocket_compat.py`, `config_utils.py`
-*   **Test Coverage**: 316 unit tests passed, complete test reports
+*   **Test Coverage**: Extensive test coverage with complete test reports
 *   **Code Quality**: Lint checks passed (black, isort, flake8, mypy), complete Chinese comments
 *   **Acceptance Criteria**: 100% passed (6/6)
 

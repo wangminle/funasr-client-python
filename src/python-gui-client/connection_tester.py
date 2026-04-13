@@ -149,19 +149,29 @@ class ConnectionTester:
         # WebSocket协议错误
         if websockets:
             try:
-                # 尝试访问websockets的异常类
-                if isinstance(
-                    exception,
-                    (
-                        websockets.exceptions.ConnectionClosedError,
-                        websockets.exceptions.ConnectionClosedOK,
-                        websockets.exceptions.InvalidStatusCode,
-                    ),
+                ws_exc_classes = []
+                for attr_name in (
+                    "ConnectionClosedError",
+                    "ConnectionClosedOK",
+                    "InvalidStatusCode",
+                    "InvalidStatus",
                 ):
+                    cls = getattr(websockets.exceptions, attr_name, None)
+                    if cls is not None:
+                        ws_exc_classes.append(cls)
+                if ws_exc_classes and isinstance(exception, tuple(ws_exc_classes)):
+                    # ConnectionClosedOK 表示正常关闭，视为部分成功而非协议错误
+                    ok_cls = getattr(websockets.exceptions, "ConnectionClosedOK", None)
+                    if ok_cls and isinstance(exception, ok_cls):
+                        return ErrorType.UNKNOWN
                     return ErrorType.PROTOCOL
             except AttributeError:
-                # websockets版本可能不同，跳过协议错误检查
                 pass
+
+        # 兜底：通过异常类名字符串匹配，适配 websockets 各版本
+        exc_name = type(exception).__name__
+        if exc_name in ("ConnectionClosedError", "InvalidStatusCode", "InvalidStatus"):
+            return ErrorType.PROTOCOL
 
         # 未知错误
         return ErrorType.UNKNOWN
@@ -312,16 +322,26 @@ class ConnectionTester:
             # 检查是否是WebSocket连接关闭相关的异常
             exception_name = type(e).__name__
             if "ConnectionClosed" in exception_name:
-                # 协议错误：连接被关闭
-                logging.warning(f"WebSocket连接被关闭: {e}")
-                return ConnectionTestResult(
-                    success=False,
-                    error_type=ErrorType.PROTOCOL,
-                    error_message="连接被服务器关闭",
-                    technical_details=f"服务器可能不接受当前消息格式: {str(e)}",
-                    partial_success="OK"
-                    in exception_name,  # ConnectionClosedOK算部分成功
-                )
+                is_normal_close = "OK" in exception_name
+                if is_normal_close:
+                    # ConnectionClosedOK 表示正常关闭，视为部分成功
+                    logging.info(f"WebSocket连接正常关闭: {e}")
+                    return ConnectionTestResult(
+                        success=False,
+                        error_type=ErrorType.UNKNOWN,
+                        error_message="连接被服务器正常关闭",
+                        technical_details=f"服务器正常关闭了连接: {str(e)}",
+                        partial_success=True,
+                    )
+                else:
+                    logging.warning(f"WebSocket连接异常关闭: {e}")
+                    return ConnectionTestResult(
+                        success=False,
+                        error_type=ErrorType.PROTOCOL,
+                        error_message="连接被服务器关闭",
+                        technical_details=f"服务器可能不接受当前消息格式: {str(e)}",
+                        partial_success=False,
+                    )
 
             # 其他未知错误
             logging.error(f"未知错误: {type(e).__name__}: {e}")
