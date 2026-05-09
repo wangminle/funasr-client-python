@@ -3464,17 +3464,21 @@ class FunASRGUIClient(tk.Tk):
                       f"mode={recognition_mode.get() if recognition_mode else 'N/A'}")
 
         # 清空之前的识别结果区域（但保留系统日志）
-        self.result_text.configure(state="normal")
-        self.result_text.delete("1.0", tk.END)  # 清空结果区域
-        self.result_text.configure(state="disabled")
+        # 注意：_run_script 在后台线程中执行，Tkinter 控件操作必须调度到主线程
+        def _clear_result_area():
+            self.result_text.configure(state="normal")
+            self.result_text.delete("1.0", tk.END)
+            self.result_text.configure(state="disabled")
 
-        # 日志区域不清空，保留之前的系统日志
-        self.log_text.configure(state="normal")
-        # self.log_text.delete('1.0', tk.END) # 取消启动时清空，不清空之前的系统日志
-        self.log_text.configure(state="disabled")
+        def _prepare_ui():
+            self.log_text.configure(state="normal")
+            self.log_text.configure(state="disabled")
+            self.start_button.config(state=tk.DISABLED)
+
+        self.after(0, _clear_result_area)
+        self.after(0, _prepare_ui)
         logging.info(self.lang_manager.get("task_start", os.path.basename(audio_in)))
         logging.info(self.lang_manager.get("results_save_location", results_dir))
-        self.start_button.config(state=tk.DISABLED)  # 禁用开始按钮
 
         # 进度倒计时相关变量
         transcribe_start_time = None  # 转写开始时间

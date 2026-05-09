@@ -181,7 +181,7 @@ class ServerProbe:
     """
 
     @staticmethod
-    def _coerce_bool(value: Any) -> Optional[bool]:
+    def _coerce_bool(value: Any) -> bool:
         """将 is_final 等字段做宽容布尔转换
 
         兼容 bool / int / str（"true"/"false"/"1"/"0" 等）等常见情况。
@@ -191,13 +191,15 @@ class ServerProbe:
             value: 需要转换的值
 
         Returns:
-            转换后的布尔值，如果输入为 None 则返回 None
+            转换后的布尔值
         """
-        if value is None:
-            return None
         if isinstance(value, bool):
             return value
+        if value is None:
+            return False
         if isinstance(value, (int, float)):
+            if value != value:  # NaN 检查
+                return False
             return value != 0
         if isinstance(value, str):
             s = value.strip().lower()
@@ -205,7 +207,6 @@ class ServerProbe:
                 return True
             if s in ("false", "0", "no", "n", "off", ""):
                 return False
-            # 非空字符串视为 True（兜底）
             return True
         return bool(value)
 
@@ -220,6 +221,12 @@ class ServerProbe:
         self.host = host
         self.port = str(port)
         self.use_ssl = use_ssl
+        # 复用 SSL context 避免重复创建
+        self._ssl_context: Optional[ssl.SSLContext] = None
+        if use_ssl:
+            self._ssl_context = ssl.create_default_context()
+            self._ssl_context.check_hostname = False
+            self._ssl_context.verify_mode = ssl.CERT_NONE
 
     async def probe(
         self,
@@ -262,12 +269,8 @@ class ServerProbe:
                 logger.error(f"websockets库未安装: {e}")
                 return caps
 
-            # 配置SSL
-            ssl_context = None
-            if self.use_ssl:
-                ssl_context = ssl.create_default_context()
-                ssl_context.check_hostname = False
-                ssl_context.verify_mode = ssl.CERT_NONE
+            # 使用缓存的 SSL context
+            ssl_context = self._ssl_context
 
             # 总超时：覆盖所有阶段，避免 TWOPASS_FULL 最坏跑到 2*timeout
             async with asyncio.timeout(timeout):
@@ -299,8 +302,10 @@ class ServerProbe:
                 if level == ProbeLevel.TWOPASS_FULL and caps.reachable:
                     if not caps.responsive:
                         caps.probe_notes.append("离线探测无响应，仍尝试2pass以避免误判")
+                    # 内层超时使用外层的 80%，避免内层超时被外层抢先触发
+                    inner_timeout = max(timeout * 0.8, 3.0)
                     await self._probe_2pass_with_new_connection(
-                        uri, ssl_context, caps, timeout
+                        uri, ssl_context, caps, inner_timeout
                     )
 
         except asyncio.TimeoutError:
@@ -464,10 +469,19 @@ class ServerProbe:
             # 等待响应
             try:
                 response = await asyncio.wait_for(ws.recv(), timeout=3.0)
-                data = json.loads(response)
+                try:
+                    data = json.loads(response)
+                except (json.JSONDecodeError, TypeError) as je:
+                    caps.probe_notes.append(f"2pass探测响应非JSON: {je}")
+                    logger.warning(f"2pass探测JSON解析失败: {je}")
+                    return
 
                 mode = data.get("mode", "")
-                if mode in ["2pass", "2pass-online", "2pass-offline"]:
+                # 兼容连字符和下划线两种变体
+                if mode in [
+                    "2pass", "2pass-online", "2pass-offline",
+                    "2pass_online", "2pass_offline",
+                ]:
                     caps.supports_2pass = True
                     caps.supports_online = True
                     caps.responsive = True
@@ -578,6 +592,7 @@ def probe_server_sync(
     """同步版本的便捷函数：探测服务器
 
     用于非异步环境（如Tkinter后台线程）。
+    自动处理已有事件循环的情况，避免 RuntimeError。
 
     Args:
         host: 服务器主机地址
@@ -589,7 +604,23 @@ def probe_server_sync(
     Returns:
         ServerCapabilities: 探测结果
     """
-    return asyncio.run(probe_server(host, port, use_ssl, level, timeout))
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        # 已有事件循环运行中，创建新线程执行
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(
+                asyncio.run,
+                probe_server(host, port, use_ssl, level, timeout),
+            )
+            return future.result(timeout=timeout + 2)
+    else:
+        return asyncio.run(probe_server(host, port, use_ssl, level, timeout))
 
 
 def create_probe_level(level_str: str) -> ProbeLevel:

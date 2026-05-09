@@ -82,7 +82,7 @@ parser.add_argument(
     "--ssl", type=int, default=1, help="是否启用SSL连接：1=启用, 0=禁用"
 )
 parser.add_argument(
-    "--no-ssl", action="store_false", dest="ssl", default=None, help="禁用SSL"
+    "--no-ssl", action="store_const", const=0, dest="ssl", help="禁用SSL"
 )
 
 # 音频配置
@@ -101,7 +101,7 @@ parser.add_argument(
     "--use_itn", type=int, default=1, help="是否启用ITN：1=启用, 0=禁用"
 )
 parser.add_argument(
-    "--no-itn", action="store_false", dest="use_itn", default=None, help="禁用ITN"
+    "--no-itn", action="store_const", const=0, dest="use_itn", help="禁用ITN"
 )
 parser.add_argument(
     "--hotword",
@@ -148,10 +148,10 @@ parser.add_argument("--output_dir", type=str, default=None, help="结果输出�
 parser.add_argument(
     "--send_without_sleep",
     action="store_true",
-    default=True,
+    default=False,
     help="发送音频时不等待（离线模式推荐）",
 )
-parser.add_argument("--thread_num", type=int, default=1, help="处理线程数")
+parser.add_argument("--thread_num", type=int, default=1, help="并行处理进程数")
 parser.add_argument(
     "--transcribe_timeout",
     type=int,
@@ -388,8 +388,7 @@ def read_audio_file(wav_path: str, default_sample_rate: int) -> tuple:
 
             with wave.open(wav_path, "rb") as wav_file:
                 sample_rate = wav_file.getframerate()
-                frames = wav_file.readframes(wav_file.getnframes())
-                audio_bytes = bytes(frames)
+                audio_bytes = wav_file.readframes(wav_file.getnframes())
             log(f"WAV采样率: {sample_rate}")
             return audio_bytes, sample_rate, wav_format
 
@@ -481,7 +480,8 @@ async def message(id: str) -> None:
         while True:
             try:
                 log("等待接收消息...")
-                raw_msg = await asyncio.wait_for(websocket.recv(), timeout=600)
+                recv_timeout = getattr(args, "transcribe_timeout", 600)
+                raw_msg = await asyncio.wait_for(websocket.recv(), timeout=recv_timeout)
 
                 # 统计接收字节数和消息数
                 message_count += 1
@@ -541,7 +541,15 @@ async def message(id: str) -> None:
                 offline_msg_done = True
                 break
             except Exception as e:
-                if "ConnectionClosed" in str(type(e)):
+                try:
+                    import websockets.exceptions
+
+                    is_conn_closed = isinstance(
+                        e, websockets.exceptions.ConnectionClosed
+                    )
+                except (ImportError, AttributeError):
+                    is_conn_closed = "ConnectionClosed" in type(e).__name__
+                if is_conn_closed:
                     log("WebSocket 连接已关闭")
                 else:
                     log(f"处理消息时发生错误: {e}\n{traceback.format_exc()}")
@@ -715,7 +723,15 @@ async def ws_client(id: int, chunk_begin: int, chunk_size: int) -> bool:
                 try:
                     await asyncio.gather(task1, task2)
                 except Exception as e:
-                    if "ConnectionClosedOK" in str(type(e)):
+                    try:
+                        import websockets.exceptions
+
+                        is_ok_close = isinstance(
+                            e, websockets.exceptions.ConnectionClosedOK
+                        )
+                    except (ImportError, AttributeError):
+                        is_ok_close = "ConnectionClosedOK" in type(e).__name__
+                    if is_ok_close:
                         log("连接已正常关闭，可能是处理完成")
                     else:
                         overall_success = False
@@ -807,9 +823,10 @@ def main() -> None:
         wavs = [args.audio_in]
 
     total_len = len(wavs)
-    if total_len >= args.thread_num:
-        chunk_size = int(total_len / args.thread_num)
-        remain_wavs = total_len - chunk_size * args.thread_num
+    actual_num_processes = min(args.thread_num, total_len)
+    if total_len >= actual_num_processes:
+        chunk_size = int(total_len / actual_num_processes)
+        remain_wavs = total_len - chunk_size * actual_num_processes
     else:
         chunk_size = 1
         remain_wavs = 0
@@ -817,8 +834,8 @@ def main() -> None:
     process_list = []
     chunk_begin = 0
 
-    # 创建处理进程
-    for i in range(args.thread_num):
+    # 创建处理进程（进程数不超过文件数）
+    for i in range(actual_num_processes):
         now_chunk_size = chunk_size
         if remain_wavs > 0:
             now_chunk_size = chunk_size + 1

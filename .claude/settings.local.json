@@ -24,7 +24,14 @@
       "Bash(curl -sLO https://raw.githubusercontent.com/modelscope/FunASR/main/runtime/html5/static/pcm.js)",
       "Bash(curl -sLO https://raw.githubusercontent.com/modelscope/FunASR/main/runtime/html5/static/recorder-core.js)",
       "Bash(curl -sLO https://raw.githubusercontent.com/modelscope/FunASR/main/runtime/html5/static/wav.js)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(pip show *)",
+      "Bash(pip3 show *)",
+      "Bash(python3 *)",
+      "Bash(gh repo *)",
+      "Bash(gh api *)",
+      "WebFetch(domain:github.com)",
+      "Bash(git ls-tree *)"
     ]
   }
 }

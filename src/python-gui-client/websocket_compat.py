@@ -4,7 +4,9 @@
 
 目前重点处理：
 1. `proxy` 参数：新版本 `websockets.connect` 支持 `proxy`，旧版本可能不支持。
-   我们希望“尽可能禁用代理”，以避免环境代理导致连接异常；但若版本不支持则自动降级不传该参数。
+   我们希望"尽可能禁用代理"，以避免环境代理导致连接异常；但若版本不支持则自动降级不传该参数。
+2. `open_timeout` 参数：websockets 10.x 引入 `open_timeout` 代替旧版的 `timeout` 参数。
+   旧版本传入 `open_timeout` 会抛 TypeError，需自动降级为 `timeout`。
 
 说明：
 - 该模块仅提供轻量封装，不引入额外依赖。
@@ -37,12 +39,12 @@ def connect_websocket(uri: str, disable_proxy: bool = True, **kwargs: Any) -> An
     import websockets
 
     def _wrap_if_needed(connect_obj: Any) -> Any:
-        """将“仅 awaitable 但不可 async with”的对象包装成异步上下文管理器。
+        """将"仅 awaitable 但不可 async with"的对象包装成异步上下文管理器。
 
         说明：
         - 正常情况下 `websockets.connect(...)` 返回对象本身就支持 `async with`；
         - 但在单元测试使用 `AsyncMock` 伪造 connect 时，可能返回 coroutine，
-          这会导致 `async with` 直接报错且产生“未 await”的警告。
+          这会导致 `async with` 直接报错且产生"未 await"的警告。
         """
         if hasattr(connect_obj, "__aenter__") and hasattr(connect_obj, "__aexit__"):
             return connect_obj
@@ -55,28 +57,49 @@ def connect_websocket(uri: str, disable_proxy: bool = True, **kwargs: Any) -> An
                 try:
                     yield ws
                 finally:
-                    close_func = getattr(ws, "close", None)
-                    if callable(close_func):
-                        maybe = close_func()
-                        if inspect.isawaitable(maybe):
-                            await maybe
+                    try:
+                        close_func = getattr(ws, "close", None)
+                        if callable(close_func):
+                            maybe = close_func()
+                            if inspect.isawaitable(maybe):
+                                await maybe
+                    except Exception:
+                        pass
 
             return _ctx()
 
-        return connect_obj
+        raise TypeError(
+            f"WebSocket 连接对象既不支持 async with 也不支持 await: {type(connect_obj)}"
+        )
 
-    if not disable_proxy:
-        return _wrap_if_needed(websockets.connect(uri, **kwargs))
+    def _normalize_timeout_params(kw: dict) -> dict:
+        """处理 open_timeout 与 timeout 参数在不同版本 websockets 间的兼容性。
 
-    # 尽可能禁用代理，但要兼容旧版本 websockets 不支持 proxy 参数的情况
+        websockets >= 10.0 使用 open_timeout，旧版使用 timeout。
+        若调用失败则自动降级。
+        """
+        return kw
+
+    def _try_connect(kw: dict) -> Any:
+        """尝试连接，处理 proxy 和 open_timeout 的兼容性降级。"""
+        try:
+            connect_obj = websockets.connect(uri, **kw)
+        except TypeError as e:
+            err_msg = str(e)
+            if "proxy" in err_msg:
+                kw.pop("proxy", None)
+                return _try_connect(kw)
+            if "open_timeout" in err_msg:
+                timeout_val = kw.pop("open_timeout", None)
+                if timeout_val is not None:
+                    kw.setdefault("timeout", timeout_val)
+                return _try_connect(kw)
+            raise
+        return _wrap_if_needed(connect_obj)
+
     connect_kwargs = dict(kwargs)
-    connect_kwargs.setdefault("proxy", None)
 
-    try:
-        return _wrap_if_needed(websockets.connect(uri, **connect_kwargs))
-    except TypeError as e:
-        # 旧版本可能报：connect() got an unexpected keyword argument 'proxy'
-        if "proxy" in str(e):
-            connect_kwargs.pop("proxy", None)
-            return _wrap_if_needed(websockets.connect(uri, **connect_kwargs))
-        raise
+    if disable_proxy:
+        connect_kwargs["proxy"] = None
+
+    return _try_connect(connect_kwargs)

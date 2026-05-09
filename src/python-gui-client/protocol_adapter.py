@@ -61,7 +61,7 @@ class MessageProfile:
 
     # 功能开关
     use_itn: bool = True  # 是否启用逆文本正则化
-    use_ssl: bool = True  # 是否启用SSL
+    use_ssl: bool = True  # 已废弃：SSL 由连接层处理，此字段不参与消息构建
 
     # 热词参数
     hotwords: str = ""
@@ -95,8 +95,8 @@ class ParsedResult:
     is_complete: bool = False  # 是否应该结束等待（核心！）
 
     # 时间戳信息
-    timestamp: Optional[List] = None
-    stamp_sents: Optional[List] = None
+    timestamp: Optional[List[Any]] = None
+    stamp_sents: Optional[List[Any]] = None
 
     # 原始数据（用于调试和兜底）
     raw: Optional[Dict[str, Any]] = None
@@ -156,17 +156,10 @@ class ProtocolAdapter:
             msg["decoder_chunk_look_back"] = profile.decoder_chunk_look_back
 
         # 新版参数（SenseVoice 相关）
-        # 多数旧服务端会忽略未知字段；为避免严格服务端拒绝，
-        # AUTO 模式默认不下发，除非显式启用。
-        # 注意：profile.server_type 代表本次请求的目标服务端类型（可能来自用户选择/探测结果），
-        # adapter.server_type 代表适配器当前认知的服务端类型；这里取“更具体”的那个。
-        effective_server_type = (
-            profile.server_type
-            if profile.server_type != ServerType.AUTO
-            else self.server_type
-        )
+        # 仅在用户显式启用（enable_svs_params=True）或用户明确指定 FUNASR_MAIN 时下发。
+        # AUTO 模式不自动下发，避免旧服务端拒绝未知字段。
         should_send_svs = profile.enable_svs_params or (
-            effective_server_type == ServerType.FUNASR_MAIN
+            profile.server_type == ServerType.FUNASR_MAIN
         )
         if should_send_svs:
             msg["svs_lang"] = profile.svs_lang
@@ -194,14 +187,15 @@ class ProtocolAdapter:
         Returns:
             ParsedResult: 解析后的结果对象
         """
-        result = ParsedResult(raw_string=raw_msg)
+        result = ParsedResult(raw_string=str(raw_msg) if raw_msg is not None else None)
 
         # 尝试解析JSON
         try:
             data = json.loads(raw_msg)
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, TypeError) as e:
+            msg_preview = repr(raw_msg)[:200] if raw_msg is not None else "None"
             result.error = f"JSON解析失败: {e}"
-            logger.warning(f"JSON解析失败: {e}, 原始数据: {raw_msg[:200]}...")
+            logger.warning(f"JSON解析失败: {e}, 原始数据: {msg_preview}...")
             return result
 
         result.raw = data
@@ -245,9 +239,10 @@ class ProtocolAdapter:
             return data["text"]
 
         # 从 stamp_sents 提取文本
-        if "stamp_sents" in data:
+        raw_stamp_sents = data.get("stamp_sents")
+        if raw_stamp_sents and isinstance(raw_stamp_sents, list):
             segments = []
-            for sent in data.get("stamp_sents", []):
+            for sent in raw_stamp_sents:
                 if isinstance(sent, dict) and "text_seg" in sent:
                     segments.append(sent["text_seg"])
             if segments:
@@ -301,10 +296,12 @@ class ProtocolAdapter:
             return True
 
         # 情况4：兜底 - 出现句子级时间戳通常代表本轮已结束/可结束等待
-        stamp_sents = data.get("stamp_sents")
-        if stamp_sents and len(stamp_sents) > 0:
-            logger.debug("结束判定: 收到 stamp_sents，视为完成")
-            return True
+        # 注意：仅对 offline / 2pass 模式生效；online 模式中间结果也可能带 stamp_sents
+        if mode != "online":
+            stamp_sents = data.get("stamp_sents")
+            if stamp_sents and len(stamp_sents) > 0:
+                logger.debug("结束判定: 收到 stamp_sents（非online模式），视为完成")
+                return True
 
         return False
 
@@ -319,6 +316,8 @@ class ProtocolAdapter:
         if value is None:
             return False
         if isinstance(value, (int, float)):
+            if value != value:  # NaN 检查：NaN != NaN 为 True
+                return False
             return value != 0
         if isinstance(value, str):
             s = value.strip().lower()
@@ -326,7 +325,6 @@ class ProtocolAdapter:
                 return True
             if s in ("false", "0", "no", "n", "off", ""):
                 return False
-            # 兜底：非空字符串视为 True（与 Python bool(str) 一致）
             return True
         return bool(value)
 
@@ -359,18 +357,20 @@ class ProtocolAdapter:
             is_final_value: is_final 字段的值
             mode: 识别模式
         """
+        is_final_value = self._coerce_bool(is_final_value)
         if mode == "offline":
-            is_final_value = self._coerce_bool(is_final_value)
             if is_final_value:
                 self._detected_is_final_semantics = "legacy_true"
             else:
-                # 注意：该特征无法100%区分新旧服务端，仅作"可能"提示
                 self._detected_is_final_semantics = "always_false"
-            logger.debug(
-                f"记录 is_final 语义: mode={mode}, "
-                f"is_final={is_final_value}, "
-                f"semantics={self._detected_is_final_semantics}"
-            )
+        elif mode in ("online", "2pass", "2pass-online", "2pass-offline"):
+            if is_final_value:
+                self._detected_is_final_semantics = "legacy_true"
+        logger.debug(
+            f"记录 is_final 语义: mode={mode}, "
+            f"is_final={is_final_value}, "
+            f"semantics={self._detected_is_final_semantics}"
+        )
 
 
 # 便捷函数
@@ -419,6 +419,10 @@ def create_message_profile(
     except ValueError:
         mode_enum = RecognitionMode.OFFLINE
 
+    import dataclasses
+
+    valid_fields = {f.name for f in dataclasses.fields(MessageProfile)}
+    filtered_kwargs = {k: v for k, v in kwargs.items() if k in valid_fields}
     return MessageProfile(
-        server_type=server_type_enum, mode=mode_enum, wav_name=wav_name, **kwargs
+        server_type=server_type_enum, mode=mode_enum, wav_name=wav_name, **filtered_kwargs
     )

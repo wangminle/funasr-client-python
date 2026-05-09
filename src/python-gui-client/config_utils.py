@@ -19,6 +19,8 @@ from typing import Any, Dict, Optional
 
 def read_json_file(path: str) -> Dict[str, Any]:
     """读取 JSON 文件，失败返回空字典。"""
+    import logging
+
     try:
         if not os.path.exists(path):
             return {}
@@ -27,13 +29,18 @@ def read_json_file(path: str) -> Dict[str, Any]:
         if isinstance(data, dict):
             return data
         return {}
-    except Exception:
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+    except Exception as e:
+        logging.warning(f"读取配置文件异常 ({path}): {type(e).__name__}: {e}")
         return {}
 
 
 def write_json_file_atomic(path: str, data: Dict[str, Any]) -> None:
     """原子写入 JSON（先写临时文件再替换），避免写入中断导致文件损坏。"""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    dir_path = os.path.dirname(path)
+    if dir_path:
+        os.makedirs(dir_path, exist_ok=True)
 
     fd, tmp_path = tempfile.mkstemp(
         prefix=os.path.basename(path) + ".tmp.",
@@ -59,6 +66,8 @@ def ensure_backup_file(path: str, backup_suffix: str = ".v2.bak") -> Optional[st
 
     返回备份文件路径；若未创建（原文件不存在或备份已存在）返回 None。
     """
+    import logging
+
     try:
         if not os.path.exists(path):
             return None
@@ -67,7 +76,8 @@ def ensure_backup_file(path: str, backup_suffix: str = ".v2.bak") -> Optional[st
             return None
         shutil.copy2(path, backup_path)
         return backup_path
-    except Exception:
+    except Exception as e:
+        logging.warning(f"创建备份文件失败 ({path}): {type(e).__name__}: {e}")
         return None
 
 
@@ -123,9 +133,17 @@ def is_cache_time_valid(
         return False
     try:
         cache_time = datetime.datetime.fromisoformat(cache_time_str)
+        # 统一时区：若 cache_time 携带时区信息，now 也必须是 aware datetime
+        if cache_time.tzinfo is not None:
+            now_dt = now or datetime.datetime.now(datetime.timezone.utc)
+            if now_dt.tzinfo is None:
+                now_dt = now_dt.replace(tzinfo=datetime.timezone.utc)
+        else:
+            now_dt = now or datetime.datetime.now()
+            if now_dt.tzinfo is not None:
+                now_dt = now_dt.replace(tzinfo=None)
+        age = now_dt - cache_time
+        return age.total_seconds() < ttl_hours * 3600
     except Exception:
         return False
-    now_dt = now or datetime.datetime.now()
-    age = now_dt - cache_time
-    return age.total_seconds() < ttl_hours * 3600
 

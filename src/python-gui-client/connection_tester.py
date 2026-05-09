@@ -70,7 +70,8 @@ class ConnectionTester:
         """初始化连接测试器
 
         Args:
-            timeout: 超时时间（秒）
+            timeout: 单阶段超时时间（秒）。注意：完整测试包含握手+接收两个阶段，
+                     最坏情况下总耗时可达 2 * timeout 秒。
             init_message: 初始化消息（None则使用默认值）
         """
         self.timeout = timeout
@@ -204,12 +205,20 @@ class ConnectionTester:
 
         Args:
             host: 主机地址
-            port: 端口号
+            port: 端口号（1-65535）
             use_ssl: 是否使用SSL
 
         Returns:
             连接测试结果
         """
+        if not (1 <= port <= 65535):
+            return ConnectionTestResult(
+                success=False,
+                error_type=ErrorType.NETWORK,
+                error_message=f"端口号无效: {port}",
+                technical_details=f"端口号必须在 1-65535 范围内，当前值: {port}",
+            )
+
         # 导入websockets
         try:
             self._import_websockets()
@@ -231,8 +240,7 @@ class ConnectionTester:
 
         try:
             # 创建连接对象（优先通过 open_timeout 控制握手超时）
-            # 注意：不要对“await 后返回的 websocket 对象”使用 async with，
-            # 因为在部分 websockets 版本中该对象不实现异步上下文管理器协议。
+            # websocket_compat.connect_websocket 已处理版本兼容性
             connection = connect_websocket(
                 uri,
                 subprotocols=["binary"],
@@ -253,7 +261,8 @@ class ConnectionTester:
                     response = await asyncio.wait_for(
                         websocket.recv(), timeout=self.timeout
                     )
-                    logging.info(f"收到服务器响应: {response[:100]}...")
+                    resp_preview = response[:100] if isinstance(response, str) else repr(response[:100])
+                    logging.info(f"收到服务器响应: {resp_preview}...")
 
                     # 成功：收到响应
                     return ConnectionTestResult(
@@ -324,11 +333,11 @@ class ConnectionTester:
             if "ConnectionClosed" in exception_name:
                 is_normal_close = "OK" in exception_name
                 if is_normal_close:
-                    # ConnectionClosedOK 表示正常关闭，视为部分成功
+                    # ConnectionClosedOK 表示正常关闭，视为部分成功（连接建立成功）
                     logging.info(f"WebSocket连接正常关闭: {e}")
                     return ConnectionTestResult(
-                        success=False,
-                        error_type=ErrorType.UNKNOWN,
+                        success=True,
+                        error_type=None,
                         error_message="连接被服务器正常关闭",
                         technical_details=f"服务器正常关闭了连接: {str(e)}",
                         partial_success=True,
@@ -359,14 +368,16 @@ class ConnectionTester:
         Args:
             message: 初始化消息字典
         """
-        self.init_message = message
+        self.init_message = message.copy()
 
     def set_timeout(self, timeout: int):
         """设置超时时间
 
         Args:
-            timeout: 超时时间（秒）
+            timeout: 超时时间（秒），必须为正数
         """
+        if timeout <= 0:
+            raise ValueError(f"timeout 必须为正数，当前值: {timeout}")
         self.timeout = timeout
 
 
